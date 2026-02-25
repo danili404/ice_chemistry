@@ -811,6 +811,7 @@ class SimpleGA:
     
         return np.array(population)
     
+    
     def _create_next_generation_hybrid(self, population, fitness_scores, fitness_func, generation):
         """
         Создание нового поколения с интегрированным LS
@@ -856,6 +857,64 @@ class SimpleGA:
         
         return new_population
     
+
+    '''''''''
+    def _create_next_generation_hybrid(self, population, fitness_scores, fitness_func, generation):
+
+        new_population = []
+        
+        # 1. Элитизм
+        elite_indices = np.argsort(fitness_scores)[-self.elite_count:]
+        for idx in elite_indices:
+            new_population.append(population[idx].copy())
+        
+        # ПОДГОТОВКА РУЛЕТКИ
+        # Преобразуем фитнес в вероятности (как в вашем примере)
+        min_fitness = np.min(fitness_scores)
+        if min_fitness < 0:
+            fitness_positive = fitness_scores - min_fitness + 1e-10
+        else:
+            fitness_positive = fitness_scores + 1e-10
+        
+        # Строим колесо рулетки (накопленные вероятности)
+        total_fitness = np.sum(fitness_positive)
+        cumulative = np.cumsum(fitness_positive / total_fitness)
+        
+        # 2. Создаем остальных особей
+        while len(new_population) < self.pop_size:
+            # РУЛЕТОЧНАЯ СЕЛЕКЦИЯ (вместо турнирной)
+            # Выбор первого родителя
+            r1 = random.random()
+            idx1 = np.searchsorted(cumulative, r1)
+            parent1 = population[idx1].copy()
+            
+            # Выбор второго родителя
+            r2 = random.random()
+            idx2 = np.searchsorted(cumulative, r2)
+            parent2 = population[idx2].copy()
+            
+            # Скрещивание
+            child = self._crossover(parent1, parent2)
+            
+            # Мутация
+            child = self._mutate(child)
+            
+            # ИНТЕГРИРОВАННЫЙ LS
+            if (self.use_local_opt and 
+                self.local_opt_func and 
+                random.random() < self.local_opt_fraction and
+                generation > 0):
+                
+                ls_steps = self._get_adaptive_ls_steps(generation)
+                improved_child = self._apply_local_optimization(child, fitness_func, max_iter=ls_steps)
+                if improved_child is not None:
+                    child = improved_child
+            
+            new_population.append(child)
+        
+        return new_population
+    '''''''''
+        
     def _get_adaptive_ls_steps(self, generation):
         """Адаптивное количество шагов LS в зависимости от поколения"""
         # В начале эволюции меньше шагов LS, в конце - больше
@@ -872,12 +931,46 @@ class SimpleGA:
         winner_idx = participants[np.argmax(fitness_scores[participants])]
         return population[winner_idx].copy()
     
+    """""""""
+    def _roulette_selection(self, fitness_scores, num_parents):
+        min_fitness = np.min(fitness_scores)
+        if min_fitness < 0:
+            fitness_positive = fitness_scores - min_fitness + 1e-10
+        else:
+            fitness_positive = fitness_scores + 1e-10
+        
+        total = np.sum(fitness_positive)
+        cumulative = []  # накопленные вероятности
+        cumsum = 0
+        for f in fitness_positive:
+            cumsum += f / total
+            cumulative.append(cumsum)
+        
+        selected_indices = []
+        for _ in range(num_parents):
+            r = random.random()
+            idx = np.searchsorted(cumulative, r)
+            selected_indices.append(idx)
+        
+        return selected_indices
+    """""""""
+    '''''''''        
     def _crossover(self, parent1, parent2):
         """Арифметическое скрещивание"""
         alpha = random.random()
         child = alpha * parent1 + (1 - alpha) * parent2
         return child
-    
+    '''''''''    
+    def _crossover(self, parent1, parent2):
+        k = random.randint(1, self.n_params-1)
+
+        child = np.zeros_like(parent1)
+
+        child[:k] = parent1[:k]
+        child[k:] = parent2[k:]
+
+        return child
+
     def _mutate(self, individual):
         """Гауссовская мутация в логарифмической шкале"""
         mutated = individual.copy()
